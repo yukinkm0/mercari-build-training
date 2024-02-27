@@ -1,9 +1,10 @@
 import asyncio
-import json
-import os
-import logging
-import pathlib
 import hashlib
+import json
+import logging
+import os
+import pathlib
+import sqlite3
 from fastapi import UploadFile, FastAPI, File, Form, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -49,24 +50,58 @@ def root():
 def add_item(name: str = Form(...), category: str = Form(...), image: UploadFile = File(...)):
     logger.info(f"Receive item: {name}, {category}")
 
-    with open(json_file, mode='r') as j:
-        items = json.load(j)
+    # with open(json_file, mode='r') as j:
+    #     items = json.load(j)
     
+    # image_filename = store_image(image)
+    
+    # items['items'].append({'name': name, 'category': category, 'image_filename': image_filename})
+
+    # with open(json_file, mode='w') as j:
+    #     json.dump(items, j)
+        
+    # return {"message": f"item received: {name}, {category}, {image_filename}"}
+    
+    
+    conn = sqlite3.connect('../db/mercari.sqlite3')
+    cur = conn.cursor()
+
     image_filename = store_image(image)
     
-    items['items'].append({'name': name, 'category': category, 'image_filename': image_filename})
+    # add record into sqlite
+    cur.execute('INSERT INTO items(name, category, image_name) VALUES(?, ?, ?)', (name, category, image_filename))
 
-    with open(json_file, mode='w') as j:
-        json.dump(items, j)
-        
+    conn.commit()
+
+    # close cur
+    cur.close()
+    # close db
+    conn.close()
+
     return {"message": f"item received: {name}, {category}, {image_filename}"}
 
 
 @app.get("/items")
 def get_items():
-    with open(json_file, mode='r') as getfile:
-        items = json.load(getfile)
-    return items
+    # with open(json_file, mode='r') as getfile:
+    #     items = json.load(getfile)
+    # return items
+
+    # connect to db
+    conn = sqlite3.connect('../db/mercari.sqlite3')
+    cur = conn.cursor()
+
+    # terminalで実行したSQL文と同じようにexecute()に書く
+    cur.execute('SELECT * FROM items')
+    # 中身を全て取得する = fetchall()
+    get_data = cur.fetchall()
+
+    # close cur
+    cur.close()
+    # close db
+    conn.close()
+
+    return get_data
 
 
 @app.get("/image/{image_name}")

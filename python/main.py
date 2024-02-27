@@ -22,7 +22,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# json_file = "./items.json"
+json_file = "./items.json"
 db = '../db/mercari.sqlite3'
 
 def store_image(image: UploadFile = File(...)):
@@ -50,27 +50,39 @@ def root():
 @app.post("/items")
 def add_item(name: str = Form(...), category: str = Form(...), image: UploadFile = File(...)):
     logger.info(f"Receive item: {name}, {category}")
-
-    # with open(json_file, mode='r') as j:
-    #     items = json.load(j)
-    
-    # image_filename = store_image(image)
-    
-    # items['items'].append({'name': name, 'category': category, 'image_filename': image_filename})
-
-    # with open(json_file, mode='w') as j:
-    #     json.dump(items, j)
-        
-    # return {"message": f"item received: {name}, {category}, {image_filename}"}
-    
     
     conn = sqlite3.connect(db)
     cur = conn.cursor()
 
     image_filename = store_image(image)
     
-    # add record into sqlite
-    cur.execute('INSERT INTO items(name, category, image_name) VALUES(?, ?, ?)', (name, category, image_filename))
+    # get category id
+    cur.execute('''SELECT * FROM category
+                WHERE name LIKE ?
+                ''', (category,)
+                )
+    
+    category_record = cur.fetchall()
+ 
+    #[{"category": [{"id": "0", "category": "fashion"}....],},...]
+    if len(category_record) > 0:
+        category_id = int(category_record[0][0])
+
+    else: 
+        cur.execute('SELECT MAX(id) FROM category')
+        max_id = cur.fetchall()[0][0]
+ 
+        if max_id == None:
+            max_id = 0
+        else:
+            max_id = int(max_id)
+        category_id = max_id + 1
+        
+        # add record into sqlite
+        cur.execute('INSERT INTO category(id, name) VALUES(?, ?)', (category_id, category))
+
+
+    cur.execute('INSERT INTO items(name, category_id, image_name) VALUES(?, ?, ?)', (name, category_id, image_filename))
 
     conn.commit()
 
@@ -93,7 +105,12 @@ def get_items():
     cur = conn.cursor()
 
     # terminalで実行したSQL文と同じようにexecute()に書く
-    cur.execute('SELECT * FROM items')
+    cur.execute('''SELECT items.id, items.name, category.name, items.image_name
+                FROM items INNER JOIN category 
+                ON items.category_id = category.id
+                '''
+                )
+    
     # 中身を全て取得する = fetchall()
     get_data = cur.fetchall()
 
@@ -122,13 +139,17 @@ async def get_image(image_name):
 
 @app.get("/items/{item_id}")
 def get_item(item_id: int):
-    with open(json_file, mode='r') as j:
-        items = json.load(j)
+    # connect to db
+    conn = sqlite3.connect(db)
+    # with open(json_file, mode='r') as j:
+    #     items = json.load(j)
 
     if item_id >= len(items['items']):
         raise HTTPException(status_code=404, detail="No item found with this id")
     
     else: 
+        # close db
+        conn.close()
         return items['items'][item_id - 1]
 
 

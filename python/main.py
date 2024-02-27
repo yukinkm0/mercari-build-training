@@ -1,7 +1,10 @@
+import asyncio
+import json
 import os
 import logging
 import pathlib
-from fastapi import FastAPI, Form, HTTPException
+import hashlib
+from fastapi import UploadFile, FastAPI, File, Form, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -18,6 +21,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+json_file="./items.json"
+
+def store_image(image: UploadFile = File(...)):
+    # image.readでcoroutine objectが生成されていたためbinary dataを取り出すためにasyncio.runを追加
+    image_bytes = asyncio.run(image.read())
+    image_hash = hashlib.sha256(image_bytes).hexdigest()
+    image_filename = f"{image_hash}.jpg"
+
+    # imageファイルを複数回保存しないようにするため(sha256より同じ画像には同じファイル名が生成されることがsecureされている)
+    if os.path.isfile(image_filename):
+        logger.info(f"{image_filename} exists.")
+    else:
+        with open(images / image_filename, "wb") as image_file:
+            image_file.write(image_bytes)
+        logger.info(f"Image saved: {image_filename}")
+    
+    return image_filename
+
 
 @app.get("/")
 def root():
@@ -25,9 +46,27 @@ def root():
 
 
 @app.post("/items")
-def add_item(name: str = Form(...)):
-    logger.info(f"Receive item: {name}")
-    return {"message": f"item received: {name}"}
+def add_item(name: str = Form(...), category: str = Form(...), image: UploadFile = File(...)):
+    logger.info(f"Receive item: {name}, {category}")
+
+    with open(json_file, mode='r') as j:
+        items = json.load(j)
+    
+    image_filename = store_image(image)
+    
+    items['items'].append({'name': name, 'category': category, 'image_filename': image_filename})
+
+    with open(json_file, mode='w') as j:
+        json.dump(items, j)
+        
+    return {"message": f"item received: {name}, {category}, {image_filename}"}
+
+
+@app.get("/items")
+def get_items():
+    with open(json_file, mode='r') as getfile:
+        items = json.load(getfile)
+    return items
 
 
 @app.get("/image/{image_name}")
@@ -43,3 +82,15 @@ async def get_image(image_name):
         image = images / "default.jpg"
 
     return FileResponse(image)
+
+
+@app.get("/items/{item_id}")
+def get_item(item_id: int):
+    with open(json_file, mode='r') as j:
+        items = json.load(j)
+
+    if item_id >= len(items['items']):
+        raise HTTPException(status_code=404, detail="No item found with this id")
+    
+    else: 
+        return items['items'][item_id - 1]

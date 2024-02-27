@@ -22,7 +22,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-json_file="./items.json"
+# json_file = "./items.json"
+db = '../db/mercari.sqlite3'
 
 def store_image(image: UploadFile = File(...)):
     # image.readでcoroutine objectが生成されていたためbinary dataを取り出すためにasyncio.runを追加
@@ -63,7 +64,7 @@ def add_item(name: str = Form(...), category: str = Form(...), image: UploadFile
     # return {"message": f"item received: {name}, {category}, {image_filename}"}
     
     
-    conn = sqlite3.connect('../db/mercari.sqlite3')
+    conn = sqlite3.connect(db)
     cur = conn.cursor()
 
     image_filename = store_image(image)
@@ -88,7 +89,7 @@ def get_items():
     # return items
 
     # connect to db
-    conn = sqlite3.connect('../db/mercari.sqlite3')
+    conn = sqlite3.connect(db)
     cur = conn.cursor()
 
     # terminalで実行したSQL文と同じようにexecute()に書く
@@ -129,3 +130,24 @@ def get_item(item_id: int):
     
     else: 
         return items['items'][item_id - 1]
+
+
+@app.get("/search")
+def search_item(keyword: str):
+    logger.info(f"Search item name: {keyword}")  # keyword探す
+
+    # connect to db
+    conn = sqlite3.connect(db)
+    cur = conn.cursor()
+
+    # 検索
+    cur.execute('SELECT * FROM items WHERE name LIKE ?', (keyword,))
+    # 中身を全て取得する = fetchall()
+    get_data_search = cur.fetchall()
+
+    # close cur
+    cur.close()
+    # close db
+    conn.close()
+
+    return get_data_search

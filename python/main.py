@@ -22,7 +22,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-json_file = "./items.json"
 db = '../db/mercari.sqlite3'
 
 def store_image(image: UploadFile = File(...)):
@@ -88,7 +87,7 @@ def add_item(name: str = Form(...), category: str = Form(...), image: UploadFile
 
     # close cur
     cur.close()
-    # close db
+    # close dbpython touroku chat 6
     conn.close()
 
     return {"message": f"item received: {name}, {category}, {image_filename}"}
@@ -96,10 +95,6 @@ def add_item(name: str = Form(...), category: str = Form(...), image: UploadFile
 
 @app.get("/items")
 def get_items():
-    # with open(json_file, mode='r') as getfile:
-    #     items = json.load(getfile)
-    # return items
-
     # connect to db
     conn = sqlite3.connect(db)
     cur = conn.cursor()
@@ -141,16 +136,21 @@ async def get_image(image_name):
 def get_item(item_id: int):
     # connect to db
     conn = sqlite3.connect(db)
-    # with open(json_file, mode='r') as j:
-    #     items = json.load(j)
+    cur = conn.cursor()
 
-    if item_id >= len(items['items']):
+    cur.execute('SELECT * FROM items WHERE category_id ?', (item_id,))
+    get_item_id = cur.fetchone()
+
+    # close cur
+    cur.close()
+    # close db
+    conn.close()
+
+    #itemが存在しない場合
+    if not get_item_id:
         raise HTTPException(status_code=404, detail="No item found with this id")
     
-    else: 
-        # close db
-        conn.close()
-        return items['items'][item_id - 1]
+    return get_item_id
 
 
 @app.get("/search")
@@ -162,7 +162,7 @@ def search_item(keyword: str):
     cur = conn.cursor()
 
     # 検索
-    cur.execute('SELECT * FROM items WHERE name LIKE ?', (keyword,))
+    cur.execute('SELECT * FROM items WHERE name LIKE ?', (f'%{keyword}%',))
     # 中身を全て取得する = fetchall()
     get_data_search = cur.fetchall()
 

@@ -1,9 +1,10 @@
 import asyncio
-import json
-import os
-import logging
-import pathlib
 import hashlib
+import json
+import logging
+import os
+import pathlib
+import sqlite3
 from fastapi import UploadFile, FastAPI, File, Form, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,7 +22,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-json_file="./items.json"
+db = '../db/mercari.sqlite3'
 
 def store_image(image: UploadFile = File(...)):
     # image.readでcoroutine objectが生成されていたためbinary dataを取り出すためにasyncio.runを追加
@@ -48,25 +49,72 @@ def root():
 @app.post("/items")
 def add_item(name: str = Form(...), category: str = Form(...), image: UploadFile = File(...)):
     logger.info(f"Receive item: {name}, {category}")
-
-    with open(json_file, mode='r') as j:
-        items = json.load(j)
     
+    conn = sqlite3.connect(db)
+    cur = conn.cursor()
+
     image_filename = store_image(image)
     
-    items['items'].append({'name': name, 'category': category, 'image_filename': image_filename})
+    # get category id
+    cur.execute('''SELECT * FROM category
+                WHERE name LIKE ?
+                ''', (category,)
+                )
+    
+    category_record = cur.fetchall()
+ 
+    #[{"category": [{"id": "0", "category": "fashion"}....],},...]
+    if len(category_record) > 0:
+        category_id = int(category_record[0][0])
 
-    with open(json_file, mode='w') as j:
-        json.dump(items, j)
+    else: 
+        cur.execute('SELECT MAX(id) FROM category')
+        max_id = cur.fetchall()[0][0]
+ 
+        if max_id == None:
+            max_id = 0
+        else:
+            max_id = int(max_id)
+        category_id = max_id + 1
         
+        # add record into sqlite
+        cur.execute('INSERT INTO category(id, name) VALUES(?, ?)', (category_id, category))
+
+
+    cur.execute('INSERT INTO items(name, category_id, image_name) VALUES(?, ?, ?)', (name, category_id, image_filename))
+
+    conn.commit()
+
+    # close cur
+    cur.close()
+    # close dbpython touroku chat 6
+    conn.close()
+
     return {"message": f"item received: {name}, {category}, {image_filename}"}
 
 
 @app.get("/items")
 def get_items():
-    with open(json_file, mode='r') as getfile:
-        items = json.load(getfile)
-    return items
+    # connect to db
+    conn = sqlite3.connect(db)
+    cur = conn.cursor()
+
+    # terminalで実行したSQL文と同じようにexecute()に書く
+    cur.execute('''SELECT items.id, items.name, category.name, items.image_name
+                FROM items INNER JOIN category 
+                ON items.category_id = category.id
+                '''
+                )
+    
+    # 中身を全て取得する = fetchall()
+    get_data = cur.fetchall()
+
+    # close cur
+    cur.close()
+    # close db
+    conn.close()
+
+    return get_data
 
 
 @app.get("/image/{image_name}")
@@ -86,11 +134,41 @@ async def get_image(image_name):
 
 @app.get("/items/{item_id}")
 def get_item(item_id: int):
-    with open(json_file, mode='r') as j:
-        items = json.load(j)
+    # connect to db
+    conn = sqlite3.connect(db)
+    cur = conn.cursor()
 
-    if item_id >= len(items['items']):
+    cur.execute('SELECT * FROM items WHERE category_id ?', (item_id,))
+    get_item_id = cur.fetchone()
+
+    # close cur
+    cur.close()
+    # close db
+    conn.close()
+
+    #itemが存在しない場合
+    if not get_item_id:
         raise HTTPException(status_code=404, detail="No item found with this id")
     
-    else: 
-        return items['items'][item_id - 1]
+    return get_item_id
+
+
+@app.get("/search")
+def search_item(keyword: str):
+    logger.info(f"Search item name: {keyword}")  # keyword探す
+
+    # connect to db
+    conn = sqlite3.connect(db)
+    cur = conn.cursor()
+
+    # 検索
+    cur.execute('SELECT * FROM items WHERE name LIKE ?', (f'%{keyword}%',))
+    # 中身を全て取得する = fetchall()
+    get_data_search = cur.fetchall()
+
+    # close cur
+    cur.close()
+    # close db
+    conn.close()
+
+    return get_data_search
